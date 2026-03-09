@@ -7,10 +7,54 @@ hoy.setHours(0,0,0,0);
 
 function dias(f) {
   if (!f) return null;
+  f = f.trim();
   let d, m, y;
-  if (f.includes("/")) { [d,m,y] = f.split("/"); }
-  else if (f.includes("-")) { [y,m,d] = f.split("-"); }
+  // DD/MM/YYYY
+  if (f.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) { [d,m,y] = f.split("/"); }
+  // M/D/YYYY (formato americano que usa Google Sheets)
+  else if (f.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) { [m,d,y] = f.split("/"); }
+  // YYYY-MM-DD
+  else if (f.match(/^\d{4}-\d{2}-\d{2}$/)) { [y,m,d] = f.split("-"); }
   else return null;
+  const fecha = new Date(Number(y), Number(m)-1, Number(d));
+  fecha.setHours(0,0,0,0);
+  return Math.ceil((fecha - hoy) / 86400000);
+}
+
+function parseFecha(f) {
+  // Google Sheets exporta como M/D/YYYY — detectar y convertir a DD/MM/YYYY
+  if (!f) return "—";
+  f = f.trim();
+  if (f.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+    const parts = f.split("/");
+    if (parts.length === 3) {
+      // Si el primer número > 12, es DD/MM/YYYY; si no, asumir M/D/YYYY de Google
+      const first = Number(parts[0]);
+      const second = Number(parts[1]);
+      if (second > 12) {
+        // Es M/D/YYYY → convertir a DD/MM/YYYY
+        return `${String(second).padStart(2,'0')}/${String(first).padStart(2,'0')}/${parts[2]}`;
+      }
+      return f;
+    }
+  }
+  return f;
+}
+
+function diasDesdeFecha(f) {
+  if (!f) return null;
+  f = f.trim();
+  let d, m, y;
+  if (f.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+    const parts = f.split("/");
+    const first = Number(parts[0]);
+    const second = Number(parts[1]);
+    // Google Sheets: M/D/YYYY
+    if (second > 12) { m = first; d = second; y = parts[2]; }
+    else { d = first; m = second; y = parts[2]; }
+  } else if (f.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    [y,m,d] = f.split("-");
+  } else return null;
   const fecha = new Date(Number(y), Number(m)-1, Number(d));
   fecha.setHours(0,0,0,0);
   return Math.ceil((fecha - hoy) / 86400000);
@@ -35,38 +79,49 @@ function Badge({ d }) {
   );
 }
 
+function parseCols(line) {
+  const cols = [];
+  let cur = "", inQ = false;
+  for (const ch of line) {
+    if (ch==='"') inQ=!inQ;
+    else if (ch==="," && !inQ) { cols.push(cur.trim().replace(/^"|"$/g,"")); cur=""; }
+    else cur+=ch;
+  }
+  cols.push(cur.trim().replace(/^"|"$/g,""));
+  return cols;
+}
+
 function parseCSV(text) {
   const lines = text.trim().split("\n");
   if (lines.length < 2) return [];
-  const headers = lines[0].split(",").map(h => h.trim().toUpperCase().replace(/"/g,""));
+
+  // Buscar fila de encabezados (la que tiene NOMBRE)
+  let headerIdx = 0;
+  for (let i = 0; i < Math.min(5, lines.length); i++) {
+    if (lines[i].toUpperCase().includes("NOMBRE")) { headerIdx = i; break; }
+  }
+
+  const headers = parseCols(lines[headerIdx]).map(h => h.toUpperCase());
   const iN  = headers.findIndex(h => h.includes("NOMBRE"));
   const iC  = headers.findIndex(h => h.includes("CUENTA") && !h.includes("CUENTA2"));
   const iP  = headers.findIndex(h => h.includes("PRECIO"));
   const iF  = headers.findIndex(h => h.includes("FECHA"));
   const iNt = headers.findIndex(h => h.includes("NOTAS"));
 
-  return lines.slice(1).map(line => {
-    const cols = [];
-    let cur = "", inQ = false;
-    for (const ch of line) {
-      if (ch==='"') inQ=!inQ;
-      else if (ch==="," && !inQ) { cols.push(cur.trim()); cur=""; }
-      else cur+=ch;
-    }
-    cols.push(cur.trim());
-    return cols;
-  })
-  .filter(cols => cols[iN] && cols[iN].replace(/"/g,"").trim())
-  .map((cols, i) => {
-    const notas = (cols[iNt]||"").toUpperCase().trim();
-    const cancelado = notas.startsWith("CANCELAR") || notas.startsWith("CANCELADO");
-    const precio = parseFloat((cols[iP]||"0").replace(/[$,"]/g,"")) || 0;
-    const fecha = (cols[iF]||"").replace(/"/g,"").trim();
-    const d = cancelado ? null : dias(fecha);
-    return { id:i, nombre:cols[iN].replace(/"/g,"").trim(), cuenta:(cols[iC]||"").replace(/"/g,"").trim(), precio, fecha, d, cancelado };
-  })
-  .filter(c => !c.cancelado)
-  .sort((a,b) => { if(a.d===null)return 1; if(b.d===null)return -1; return a.d-b.d; });
+  return lines.slice(headerIdx + 1)
+    .map(line => parseCols(line))
+    .filter(cols => cols[iN] && cols[iN].trim())
+    .map((cols, i) => {
+      const notas = (cols[iNt]||"").toUpperCase().trim();
+      const cancelado = notas.startsWith("CANCELAR") || notas.startsWith("CANCELADO");
+      const precio = parseFloat((cols[iP]||"0").replace(/[$,"]/g,"")) || 0;
+      const fechaRaw = (cols[iF]||"").trim();
+      const fechaFmt = parseFecha(fechaRaw);
+      const d = cancelado ? null : diasDesdeFecha(fechaRaw);
+      return { id:i, nombre:cols[iN].trim(), cuenta:(cols[iC]||"").trim(), precio, fecha:fechaFmt, d, cancelado };
+    })
+    .filter(c => !c.cancelado)
+    .sort((a,b) => { if(a.d===null)return 1; if(b.d===null)return -1; return a.d-b.d; });
 }
 
 export default function App() {
@@ -86,7 +141,7 @@ export default function App() {
       if (!res.ok) throw new Error(`Error ${res.status}`);
       const text = await res.text();
       const datos = parseCSV(text);
-      if (datos.length === 0) throw new Error("No se encontraron clientes");
+      if (datos.length === 0) throw new Error("No se encontraron clientes. Verifica que la hoja tenga columnas NOMBRE, CUENTA, PRECIO, FECHA");
       setClientes(datos);
       setUltimaAct(new Date());
     } catch(e) {
@@ -158,7 +213,7 @@ export default function App() {
         {cargando ? (
           <div style={{ textAlign:"center", padding:"60px 0", color:"#4b5563" }}>
             <div style={{ fontSize:36, marginBottom:12 }}>⏳</div>
-            <div>Cargando datos de Google Sheets...</div>
+            <div>Cargando datos...</div>
           </div>
         ) : error ? (
           <div style={{ background:"#1a0f00", border:"1px solid #fb923c44", borderRadius:14, padding:24, textAlign:"center" }}>
