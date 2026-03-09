@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
 
-// ── URL proxy para evitar bloqueo CORS de OneDrive ──────────────────────────
-// Usamos allorigins.win como proxy público gratuito
-const FILE_ID  = "7FFA92FDFAEB46B1!BFAAAD0F264D4134B475B5E72CF8E26E";
-const AUTH_KEY = "!AG1GbeD";
-const DIRECT   = `https://onedrive.live.com/download?resid=${FILE_ID}&authkey=${AUTH_KEY}&em=2`;
-const PROXY    = `https://api.allorigins.win/raw?url=${encodeURIComponent(DIRECT)}`;
+// Múltiples proxies por si uno falla
+const DIRECT = "https://onedrive.live.com/download?resid=7FFA92FDFAEB46B1%21BFAAAD0F264D4134B475B5E72CF8E26E&authkey=%21AG1GbeD&em=2";
+const PROXIES = [
+  `https://corsproxy.io/?${encodeURIComponent(DIRECT)}`,
+  `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(DIRECT)}`,
+  DIRECT,
+];
 
 const hoy = new Date();
 hoy.setHours(0, 0, 0, 0);
@@ -14,7 +15,7 @@ hoy.setHours(0, 0, 0, 0);
 function diasRestantes(fecha) {
   if (!fecha) return null;
   let d;
-  if (fecha instanceof Date)       d = new Date(fecha);
+  if (fecha instanceof Date)          d = new Date(fecha);
   else if (typeof fecha === "number") d = new Date((fecha - 25569) * 86400000);
   else if (typeof fecha === "string") {
     const p = fecha.split("/");
@@ -35,30 +36,40 @@ function formatFecha(fecha) {
 }
 
 function urgencia(dias) {
-  if (dias === null) return { color: "#64748b", bg: "#1e293b", label: "Sin fecha" };
-  if (dias < 0)      return { color: "#94a3b8", bg: "#1e293b", label: "Vencido" };
-  if (dias === 0)    return { color: "#f43f5e", bg: "#2d0a14", label: "¡HOY!" };
-  if (dias <= 3)     return { color: "#f43f5e", bg: "#2d0a14", label: "Urgente" };
-  if (dias <= 7)     return { color: "#fb923c", bg: "#2d1200", label: "Pronto" };
-  if (dias <= 15)    return { color: "#facc15", bg: "#2d2600", label: "En breve" };
-  return               { color: "#4ade80", bg: "#0a2d14", label: "OK" };
+  if (dias === null) return { color: "#64748b", bg: "#1e293b" };
+  if (dias < 0)      return { color: "#94a3b8", bg: "#1e293b" };
+  if (dias === 0)    return { color: "#f43f5e", bg: "#2d0a14" };
+  if (dias <= 3)     return { color: "#f43f5e", bg: "#2d0a14" };
+  if (dias <= 7)     return { color: "#fb923c", bg: "#2d1200" };
+  if (dias <= 15)    return { color: "#facc15", bg: "#2d2600" };
+  return               { color: "#4ade80", bg: "#0a2d14" };
 }
 
 function Badge({ dias }) {
   const u = urgencia(dias);
   return (
-    <span style={{
-      background: u.bg, color: u.color,
-      border: `1px solid ${u.color}55`,
-      borderRadius: 20, padding: "2px 10px",
-      fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
-    }}>
-      {dias === null ? "—"
-        : dias < 0  ? `${Math.abs(dias)}d vencido`
-        : dias === 0 ? "¡HOY!"
-        : `${dias} días`}
+    <span style={{ background: u.bg, color: u.color, border: `1px solid ${u.color}55`, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>
+      {dias === null ? "—" : dias < 0 ? `${Math.abs(dias)}d vencido` : dias === 0 ? "¡HOY!" : `${dias} días`}
     </span>
   );
+}
+
+async function fetchExcel() {
+  for (const url of PROXIES) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const ct = res.headers.get("content-type") || "";
+      // Si nos devuelven HTML, este proxy no sirve
+      if (ct.includes("text/html")) continue;
+      const buf = await res.arrayBuffer();
+      // Verificar que sea un archivo válido (PK = ZIP/XLSX magic bytes)
+      const magic = new Uint8Array(buf.slice(0, 4));
+      if (magic[0] !== 0x50 || magic[1] !== 0x4B) continue;
+      return buf;
+    } catch { continue; }
+  }
+  throw new Error("No se pudo conectar con el archivo de OneDrive.\nAsegúrate de que el archivo esté compartido como 'Cualquier persona puede ver'.");
 }
 
 export default function App() {
@@ -74,15 +85,13 @@ export default function App() {
     setCargando(true);
     setError(null);
     try {
-      const res = await fetch(PROXY);
-      if (!res.ok) throw new Error("No se pudo descargar el archivo");
-      const buffer = await res.arrayBuffer();
+      const buffer = await fetchExcel();
       const wb = XLSX.read(buffer, { type: "array", cellDates: true });
 
       const hojaNombre = wb.SheetNames.find(n => n.includes("CLIENTES"));
-      if (!hojaNombre) throw new Error("No se encontró la hoja CLIENTES");
+      if (!hojaNombre) throw new Error("No se encontró la hoja CLIENTES en el archivo.");
 
-      const ws   = wb.Sheets[hojaNombre];
+      const ws    = wb.Sheets[hojaNombre];
       const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
       const hdrs  = filas[1] || [];
 
@@ -95,19 +104,11 @@ export default function App() {
       const datos = filas.slice(2)
         .filter(f => f[iNombre] && String(f[iNombre]).trim())
         .map((f, i) => {
-          const notas     = String(f[iNotas] || "").toUpperCase();
+          const notas     = String(f[iNotas] || "").toUpperCase().trim();
           const cancelado = notas.startsWith("CANCELAR") || notas.startsWith("CANCELADO");
           const fecha     = f[iCol2] || null;
           const dias      = cancelado ? null : diasRestantes(fecha);
-          return {
-            id:        i,
-            nombre:    String(f[iNombre] || "").trim(),
-            cuenta:    String(f[iCuenta] || "").trim(),
-            precio:    Number(f[iPrecio]) || 0,
-            fechaFmt:  formatFecha(fecha),
-            dias,
-            cancelado,
-          };
+          return { id: i, nombre: String(f[iNombre]).trim(), cuenta: String(f[iCuenta] || "").trim(), precio: Number(f[iPrecio]) || 0, fechaFmt: formatFecha(fecha), dias, cancelado };
         })
         .filter(c => !c.cancelado);
 
@@ -132,11 +133,7 @@ export default function App() {
         if (filtro === "mes")    return ok && c.dias !== null && c.dias >= 0 && c.dias <= 30;
         return ok;
       })
-      .sort((a, b) => {
-        if (a.dias === null) return 1;
-        if (b.dias === null) return -1;
-        return a.dias - b.dias;
-      });
+      .sort((a, b) => { if (a.dias === null) return 1; if (b.dias === null) return -1; return a.dias - b.dias; });
   }, [clientes, buscar, filtro]);
 
   function notificar(c) {
@@ -151,21 +148,15 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#0b0f1a", fontFamily: "'DM Sans',system-ui,sans-serif", color: "#e2e8f0", paddingBottom: 40 }}>
-
-      {/* ── Header ── */}
+      {/* Header */}
       <div style={{ background: "linear-gradient(135deg,#0f172a,#1e1b4b)", padding: "20px 16px 14px", borderBottom: "1px solid #1e2640", position: "sticky", top: 0, zIndex: 10 }}>
         <div style={{ maxWidth: 500, margin: "0 auto" }}>
-
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#6366f1,#a855f7)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>💳</div>
               <div>
                 <div style={{ fontWeight: 800, fontSize: 16 }}>Cobros del mes</div>
-                {urgentes > 0 && (
-                  <div style={{ fontSize: 11, color: "#fb923c", fontWeight: 600 }}>
-                    🔔 {urgentes} pago{urgentes > 1 ? "s" : ""} urgente{urgentes > 1 ? "s" : ""}
-                  </div>
-                )}
+                {urgentes > 0 && <div style={{ fontSize: 11, color: "#fb923c", fontWeight: 600 }}>🔔 {urgentes} pago{urgentes > 1 ? "s" : ""} urgente{urgentes > 1 ? "s" : ""}</div>}
               </div>
             </div>
             <button onClick={cargarDatos} disabled={cargando}
@@ -173,36 +164,21 @@ export default function App() {
               {cargando ? "⏳" : "🔄 Actualizar"}
             </button>
           </div>
-
-          {ultimaAct && (
-            <div style={{ fontSize: 10, color: "#374151", marginBottom: 10 }}>
-              Actualizado: {ultimaAct.toLocaleTimeString("es-MX")}
-            </div>
-          )}
-
-          {/* Buscador */}
+          {ultimaAct && <div style={{ fontSize: 10, color: "#374151", marginBottom: 10 }}>Actualizado: {ultimaAct.toLocaleTimeString("es-MX")}</div>}
           <div style={{ position: "relative", marginBottom: 10 }}>
             <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#64748b" }}>🔍</span>
-            <input value={buscar} onChange={e => setBuscar(e.target.value)}
-              placeholder="Buscar nombre o servicio..."
+            <input value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="Buscar nombre o servicio..."
               style={{ width: "100%", boxSizing: "border-box", background: "#1e2640", border: "1px solid #2d3548", borderRadius: 10, padding: "10px 12px 10px 36px", color: "#e2e8f0", fontSize: 14, outline: "none" }} />
           </div>
-
-          {/* Filtros */}
           <div style={{ display: "flex", gap: 6 }}>
             {[{ val: "todos", label: "Todos" }, { val: "hoy", label: "🔴 Hoy" }, { val: "semana", label: "🟠 7 días" }, { val: "mes", label: "🟡 30 días" }].map(f => (
-              <button key={f.val} onClick={() => setFiltro(f.val)} style={{
-                background: filtro === f.val ? "#6366f1" : "#1e2640",
-                color: filtro === f.val ? "#fff" : "#94a3b8",
-                border: `1px solid ${filtro === f.val ? "#6366f1" : "#2d3548"}`,
-                borderRadius: 8, padding: "6px 0", cursor: "pointer", fontSize: 11, fontWeight: 600, flex: 1,
-              }}>{f.label}</button>
+              <button key={f.val} onClick={() => setFiltro(f.val)} style={{ background: filtro === f.val ? "#6366f1" : "#1e2640", color: filtro === f.val ? "#fff" : "#94a3b8", border: `1px solid ${filtro === f.val ? "#6366f1" : "#2d3548"}`, borderRadius: 8, padding: "6px 0", cursor: "pointer", fontSize: 11, fontWeight: 600, flex: 1 }}>{f.label}</button>
             ))}
           </div>
         </div>
       </div>
 
-      {/* ── Lista ── */}
+      {/* Lista */}
       <div style={{ maxWidth: 500, margin: "0 auto", padding: "14px 16px 0" }}>
         {cargando ? (
           <div style={{ textAlign: "center", padding: "60px 0", color: "#4b5563" }}>
@@ -210,30 +186,25 @@ export default function App() {
             <div>Cargando datos desde Excel...</div>
           </div>
         ) : error ? (
-          <div style={{ background: "#2d0a14", border: "1px solid #f43f5e44", borderRadius: 14, padding: 24, textAlign: "center" }}>
+          <div style={{ background: "#1a0f00", border: "1px solid #fb923c44", borderRadius: 14, padding: 24, textAlign: "center" }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>⚠️</div>
-            <div style={{ color: "#f43f5e", fontSize: 13, marginBottom: 16 }}>{error}</div>
-            <button onClick={cargarDatos} style={{ background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, padding: "8px 24px", cursor: "pointer", fontWeight: 700 }}>
-              Reintentar
-            </button>
+            <div style={{ color: "#fb923c", fontSize: 13, marginBottom: 8, whiteSpace: "pre-line" }}>{error}</div>
+            <div style={{ color: "#64748b", fontSize: 11, marginBottom: 16 }}>
+              Ve a OneDrive → abre el archivo → Compartir → "Cualquier persona con el vínculo puede ver" → copia el link
+            </div>
+            <button onClick={cargarDatos} style={{ background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, padding: "8px 24px", cursor: "pointer", fontWeight: 700 }}>Reintentar</button>
           </div>
         ) : filtrados.length === 0 ? (
           <div style={{ textAlign: "center", color: "#4b5563", padding: "60px 0", fontSize: 14 }}>Sin resultados</div>
         ) : filtrados.map(c => {
-          const u       = urgencia(c.dias);
+          const u = urgencia(c.dias);
           const urgente = c.dias !== null && c.dias >= 0 && c.dias <= 3;
           const yaNotif = notif === c.id;
           return (
-            <div key={c.id} style={{
-              background: urgente ? u.bg : "#111827",
-              border: `1px solid ${urgente ? u.color + "44" : "#1e2640"}`,
-              borderRadius: 14, padding: "14px 16px", marginBottom: 10,
-            }}>
+            <div key={c.id} style={{ background: urgente ? u.bg : "#111827", border: `1px solid ${urgente ? u.color + "44" : "#1e2640"}`, borderRadius: 14, padding: "14px 16px", marginBottom: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {c.nombre}
-                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nombre}</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
                     <span style={{ background: "#1e2640", color: "#94a3b8", fontSize: 11, padding: "2px 8px", borderRadius: 6, fontWeight: 600 }}>{c.cuenta}</span>
                     <span style={{ color: "#4ade80", fontWeight: 800, fontSize: 15 }}>${c.precio.toLocaleString()}</span>
@@ -243,14 +214,7 @@ export default function App() {
                     <Badge dias={c.dias} />
                   </div>
                 </div>
-                <button onClick={() => notificar(c)} style={{
-                  background: yaNotif ? "#166534" : "#16a34a",
-                  color: "#fff", border: "none", borderRadius: 10,
-                  padding: "10px 14px", cursor: "pointer",
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
-                  minWidth: 64, flexShrink: 0, transition: "all .2s",
-                  transform: yaNotif ? "scale(0.96)" : "scale(1)",
-                }}>
+                <button onClick={() => notificar(c)} style={{ background: yaNotif ? "#166534" : "#16a34a", color: "#fff", border: "none", borderRadius: 10, padding: "10px 14px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: 64, flexShrink: 0, transition: "all .2s", transform: yaNotif ? "scale(0.96)" : "scale(1)" }}>
                   <span style={{ fontSize: 20 }}>{yaNotif ? "✅" : "📲"}</span>
                   <span style={{ fontSize: 10, fontWeight: 700 }}>{yaNotif ? "Enviado" : "Avisar"}</span>
                 </button>
@@ -258,12 +222,7 @@ export default function App() {
             </div>
           );
         })}
-
-        {!cargando && !error && (
-          <div style={{ textAlign: "center", fontSize: 11, color: "#374151", marginTop: 16 }}>
-            {filtrados.length} de {clientes.length} clientes activos
-          </div>
-        )}
+        {!cargando && !error && <div style={{ textAlign: "center", fontSize: 11, color: "#374151", marginTop: 16 }}>{filtrados.length} de {clientes.length} clientes activos</div>}
       </div>
     </div>
   );
