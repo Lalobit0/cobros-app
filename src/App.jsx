@@ -1,37 +1,19 @@
 import { useState, useEffect, useMemo } from "react";
-import * as XLSX from "xlsx";
+
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSdtqRFnZ5Dq0qmw966hg8dj5EjPCv2hKahtevMK6Yb4Eq_ZE0OMSEcRSE5tIvsAA/pub?gid=918785499&single=true&output=csv";
 
 const hoy = new Date();
-hoy.setHours(0, 0, 0, 0);
+hoy.setHours(0,0,0,0);
 
-// Todas las URLs posibles para leer el Excel directo
-const URLS = [
-  "https://api.onedrive.com/v1.0/shares/u!aHR0cHM6Ly8xZHJ2Lm1zL3gvYy83ZmZhOTJmZGZhZWI0NmIxL0lRQVByYXFfVFNZMFFiUjF0ZWNzLU9KdUFXLWF5ZXJpX2c5bUtJdlNmd0hZUWhjP2U9MGRQZlg3/root/content",
-  "https://onedrive.live.com/download?resid=7FFA92FDFAEB46B1%21BFAAAD0F264D4134B475B5E72CF8E26E&authkey=%21A0dPfX7&em=2",
-  "https://onedrive.live.com/download?cid=7FFA92FDFAEB46B1&resid=7FFA92FDFAEB46B1%21BFAAAD0F264D4134B475B5E72CF8E26E&authkey=%21A0dPfX7",
-];
-
-function diasRestantes(fecha) {
-  if (!fecha) return null;
-  let d;
-  if (fecha instanceof Date)          d = new Date(fecha);
-  else if (typeof fecha === "number") d = new Date((fecha - 25569) * 86400000);
-  else if (typeof fecha === "string") {
-    const p = fecha.split("/");
-    if (p.length === 3) d = new Date(p[2], p[1]-1, p[0]);
-    else return null;
-  } else return null;
-  d.setHours(0,0,0,0);
-  return Math.ceil((d - hoy) / 86400000);
-}
-
-function formatFecha(fecha) {
-  if (!fecha) return "—";
-  let d;
-  if (fecha instanceof Date)          d = fecha;
-  else if (typeof fecha === "number") d = new Date((fecha - 25569) * 86400000);
-  else return String(fecha);
-  return d.toLocaleDateString("es-MX", { day:"2-digit", month:"2-digit", year:"numeric" });
+function dias(f) {
+  if (!f) return null;
+  let d, m, y;
+  if (f.includes("/")) { [d,m,y] = f.split("/"); }
+  else if (f.includes("-")) { [y,m,d] = f.split("-"); }
+  else return null;
+  const fecha = new Date(Number(y), Number(m)-1, Number(d));
+  fecha.setHours(0,0,0,0);
+  return Math.ceil((fecha - hoy) / 86400000);
 }
 
 function urgencia(d) {
@@ -53,6 +35,40 @@ function Badge({ d }) {
   );
 }
 
+function parseCSV(text) {
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map(h => h.trim().toUpperCase().replace(/"/g,""));
+  const iN  = headers.findIndex(h => h.includes("NOMBRE"));
+  const iC  = headers.findIndex(h => h.includes("CUENTA") && !h.includes("CUENTA2"));
+  const iP  = headers.findIndex(h => h.includes("PRECIO"));
+  const iF  = headers.findIndex(h => h.includes("FECHA"));
+  const iNt = headers.findIndex(h => h.includes("NOTAS"));
+
+  return lines.slice(1).map(line => {
+    const cols = [];
+    let cur = "", inQ = false;
+    for (const ch of line) {
+      if (ch==='"') inQ=!inQ;
+      else if (ch==="," && !inQ) { cols.push(cur.trim()); cur=""; }
+      else cur+=ch;
+    }
+    cols.push(cur.trim());
+    return cols;
+  })
+  .filter(cols => cols[iN] && cols[iN].replace(/"/g,"").trim())
+  .map((cols, i) => {
+    const notas = (cols[iNt]||"").toUpperCase().trim();
+    const cancelado = notas.startsWith("CANCELAR") || notas.startsWith("CANCELADO");
+    const precio = parseFloat((cols[iP]||"0").replace(/[$,"]/g,"")) || 0;
+    const fecha = (cols[iF]||"").replace(/"/g,"").trim();
+    const d = cancelado ? null : dias(fecha);
+    return { id:i, nombre:cols[iN].replace(/"/g,"").trim(), cuenta:(cols[iC]||"").replace(/"/g,"").trim(), precio, fecha, d, cancelado };
+  })
+  .filter(c => !c.cancelado)
+  .sort((a,b) => { if(a.d===null)return 1; if(b.d===null)return -1; return a.d-b.d; });
+}
+
 export default function App() {
   const [clientes,  setClientes]  = useState([]);
   const [cargando,  setCargando]  = useState(true);
@@ -65,51 +81,12 @@ export default function App() {
   async function cargarDatos() {
     setCargando(true);
     setError(null);
-    let buffer = null;
-
-    for (const url of URLS) {
-      try {
-        const res = await fetch(url, { redirect:"follow" });
-        if (!res.ok) continue;
-        const buf   = await res.arrayBuffer();
-        const bytes = new Uint8Array(buf);
-        if (bytes[0] === 0x50 && bytes[1] === 0x4B) { buffer = buf; break; }
-      } catch { continue; }
-    }
-
-    if (!buffer) {
-      setError("No se pudo leer el archivo de OneDrive.\nVerifica que el link esté activo y sea público.");
-      setCargando(false);
-      return;
-    }
-
     try {
-      const wb    = XLSX.read(buffer, { type:"array", cellDates:true });
-      const hoja  = wb.SheetNames.find(n => n.includes("CLIENTES"));
-      if (!hoja) throw new Error("No se encontró la hoja CLIENTES");
-
-      const ws    = wb.Sheets[hoja];
-      const filas = XLSX.utils.sheet_to_json(ws, { header:1, defval:"" });
-      const hdrs  = filas[1] || [];
-
-      const iN = hdrs.findIndex(h => String(h).toUpperCase().includes("NOMBRE"));
-      const iC = hdrs.findIndex(h => String(h).toUpperCase().includes("CUENTA") && !String(h).toUpperCase().includes("CUENTA2"));
-      const iP = hdrs.findIndex(h => String(h).toUpperCase().includes("PRECIO"));
-      const iF = hdrs.findIndex(h => String(h).toUpperCase().includes("COLUMNA2"));
-      const iNt= hdrs.findIndex(h => String(h).toUpperCase().includes("NOTAS"));
-
-      const datos = filas.slice(2)
-        .filter(f => f[iN] && String(f[iN]).trim())
-        .map((f, i) => {
-          const notas = String(f[iNt]||"").toUpperCase().trim();
-          const cancelado = notas.startsWith("CANCELAR") || notas.startsWith("CANCELADO");
-          const fecha = f[iF] || null;
-          const d = cancelado ? null : diasRestantes(fecha);
-          return { id:i, nombre:String(f[iN]).trim(), cuenta:String(f[iC]||"").trim(), precio:Number(f[iP])||0, fechaFmt:formatFecha(fecha), d, cancelado };
-        })
-        .filter(c => !c.cancelado)
-        .sort((a,b) => { if(a.d===null)return 1; if(b.d===null)return -1; return a.d-b.d; });
-
+      const res = await fetch(SHEET_URL + "&t=" + Date.now());
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      const text = await res.text();
+      const datos = parseCSV(text);
+      if (datos.length === 0) throw new Error("No se encontraron clientes");
       setClientes(datos);
       setUltimaAct(new Date());
     } catch(e) {
@@ -134,7 +111,7 @@ export default function App() {
 
   function notificar(c) {
     const diasTxt = c.d===0?"¡HOY!":`en ${c.d} días`;
-    const txt = `Hola! Te aviso que *${c.nombre}* tiene pendiente el pago de *${c.cuenta}* por *$${c.precio}* MXN. Fecha: *${c.fechaFmt}* (${diasTxt}).`;
+    const txt = `Hola! Te aviso que *${c.nombre}* tiene pendiente el pago de *${c.cuenta}* por *$${c.precio}* MXN. Fecha: *${c.fecha}* (${diasTxt}).`;
     window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, "_blank");
     setNotif(c.id);
     setTimeout(() => setNotif(null), 3000);
@@ -143,7 +120,7 @@ export default function App() {
   const urgentes = clientes.filter(c => c.d!==null && c.d>=0 && c.d<=7).length;
 
   return (
-    <div style={{ minHeight:"100vh", background:"#0b0f1a", fontFamily:"'DM Sans',system-ui,sans-serif", color:"#e2e8f0", paddingBottom:40 }}>
+    <div style={{ minHeight:"100vh", background:"#0b0f1a", fontFamily:"system-ui,sans-serif", color:"#e2e8f0", paddingBottom:40 }}>
       <div style={{ background:"linear-gradient(135deg,#0f172a,#1e1b4b)", padding:"20px 16px 14px", borderBottom:"1px solid #1e2640", position:"sticky", top:0, zIndex:10 }}>
         <div style={{ maxWidth:500, margin:"0 auto" }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
@@ -181,12 +158,12 @@ export default function App() {
         {cargando ? (
           <div style={{ textAlign:"center", padding:"60px 0", color:"#4b5563" }}>
             <div style={{ fontSize:36, marginBottom:12 }}>⏳</div>
-            <div>Cargando datos desde Excel...</div>
+            <div>Cargando datos de Google Sheets...</div>
           </div>
         ) : error ? (
           <div style={{ background:"#1a0f00", border:"1px solid #fb923c44", borderRadius:14, padding:24, textAlign:"center" }}>
             <div style={{ fontSize:32, marginBottom:8 }}>⚠️</div>
-            <div style={{ color:"#fb923c", fontSize:13, marginBottom:16, whiteSpace:"pre-line" }}>{error}</div>
+            <div style={{ color:"#fb923c", fontSize:13, marginBottom:16 }}>{error}</div>
             <button onClick={cargarDatos} style={{ background:"#6366f1", color:"#fff", border:"none", borderRadius:8, padding:"8px 24px", cursor:"pointer", fontWeight:700 }}>Reintentar</button>
           </div>
         ) : filtrados.length===0 ? (
@@ -205,7 +182,7 @@ export default function App() {
                     <span style={{ color:"#4ade80", fontWeight:800, fontSize:15 }}>${c.precio.toLocaleString()}</span>
                   </div>
                   <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                    <span style={{ fontSize:12, color:"#64748b" }}>📅 {c.fechaFmt}</span>
+                    <span style={{ fontSize:12, color:"#64748b" }}>📅 {c.fecha}</span>
                     <Badge d={c.d} />
                   </div>
                 </div>
@@ -219,7 +196,7 @@ export default function App() {
         })}
         {!cargando && !error && (
           <div style={{ textAlign:"center", fontSize:11, color:"#374151", marginTop:16 }}>
-            {filtrados.length} de {clientes.length} clientes activos
+            {filtrados.length} de {clientes.length} clientes
           </div>
         )}
       </div>
