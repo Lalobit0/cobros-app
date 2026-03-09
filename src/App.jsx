@@ -2,11 +2,12 @@ import { useState, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
 
 // Múltiples proxies por si uno falla
-const DIRECT = "https://onedrive.live.com/download?resid=7FFA92FDFAEB46B1%21BFAAAD0F264D4134B475B5E72CF8E26E&authkey=%21AG1GbeD&em=2";
+const DIRECT = "https://onedrive.live.com/download?resid=7FFA92FDFAEB46B1%21BFAAAD0F264D4134B475B5E72CF8E26E&authkey=%212K9qA9&em=2";
+const API_URL = "https://api.onedrive.com/v1.0/shares/u!aHR0cHM6Ly8xZHJ2Lm1zL3gvYy83ZmZhOTJmZGZhZWI0NmIxL0lRQVByYXFfVFNZMFFiUjF0ZWNzLU9KdUFYXzk4ei1QUmZrNzJ0eUdZSld4My13P2U9Mks5cUE5/root/content";
 const PROXIES = [
+  API_URL,
   `https://corsproxy.io/?${encodeURIComponent(DIRECT)}`,
   `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(DIRECT)}`,
-  DIRECT,
 ];
 
 const hoy = new Date();
