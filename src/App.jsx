@@ -1,11 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 
 // ─── CONFIG ───────────────────────────────────────────────
-const API_KEY   = "AIzaSyBmxd7zZaB928Yr2uT7PA4iRQsV4WY2yWI";
-const SHEET_ID  = "1aAklUeq3pb5A0EmJS51a6OEosajcWGXI";
-const SHEET_CSV = `https://docs.google.com/spreadsheets/d/e/2PACX-1vSdtqRFnZ5Dq0qmw966hg8dj5EjPCv2hKahtevMK6Yb4Eq_ZE0OMSEcRSE5tIvsAA/pub?gid=918785499&single=true&output=csv`;
-const API_BASE  = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}`;
-const SHEET_NAME = "📋 CLIENTES";
+const SHEET_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS2zZwes2sBIGWHuBxBG56_7QpKC-bzp7fe7qphlGzD2roQkUyYvn12CIG1fdrAt-Q0GbPtdUwnZdJR/pub?gid=918785499&single=true&output=csv";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz2LRorrx-ndjy3cJQCYo37KbvaftUs7CVdWPlJQhYkb3oWSiHDNHmBI4GYs5BeSOOtCA/exec";
 
 const USUARIOS = {
   Admin:    { pass: "Karina.25",  rol: "admin" },
@@ -147,38 +144,29 @@ function agruparClientes(lista) {
   }).sort((a,b) => { if(a.dMin===null)return 1; if(b.dMin===null)return -1; return a.dMin-b.dMin; });
 }
 
-// ─── GOOGLE SHEETS API ────────────────────────────────────
-async function sheetRequest(method, path, body) {
-  const res = await fetch(`${API_BASE}${path}?key=${API_KEY}`, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
+// ─── APPS SCRIPT API ─────────────────────────────────────
+async function scriptPost(payload) {
+  const res = await fetch(SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(`Sheets API error ${res.status}`);
-  return res.json();
+  if (!res.ok) throw new Error(`Script error ${res.status}`);
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || "Error en script");
+  return json;
 }
 
 async function agregarFila(datos) {
-  await sheetRequest("POST", `/values/${encodeURIComponent(SHEET_NAME)}:append?valueInputOption=USER_ENTERED`, {
-    values: [[datos.nombre, datos.cuenta, datos.precio, "", datos.fecha, "", "", "", "", "", datos.notas, "", "", datos.tel]]
-  });
+  await scriptPost({ action:"append", nombre:datos.nombre, cuenta:datos.cuenta, precio:datos.precio, fecha:datos.fecha, notas:datos.notas, tel:datos.tel });
 }
 
 async function actualizarFecha(rowNum, colIdx, nuevaFecha) {
-  const col = String.fromCharCode(65 + colIdx);
-  await sheetRequest("PUT", `/values/${encodeURIComponent(SHEET_NAME)}!${col}${rowNum}?valueInputOption=USER_ENTERED`, {
-    values: [[nuevaFecha]]
-  });
+  await scriptPost({ action:"update", row:rowNum, col:colIdx, value:nuevaFecha });
 }
 
 async function eliminarFila(rowNum) {
-  await sheetRequest("POST", `:batchUpdate`, {
-    requests: [{
-      deleteDimension: {
-        range: { sheetId: 918785499, dimension:"ROWS", startIndex: rowNum-1, endIndex: rowNum }
-      }
-    }]
-  });
+  await scriptPost({ action:"delete", row:rowNum });
 }
 
 // ─── MODALES ─────────────────────────────────────────────
