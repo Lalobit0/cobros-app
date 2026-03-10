@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 
 // ─── CONFIG ───────────────────────────────────────────────
 const SHEET_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS2zZwes2sBIGWHuBxBG56_7QpKC-bzp7fe7qphlGzD2roQkUyYvn12CIG1fdrAt-Q0GbPtdUwnZdJR/pub?gid=918785499&single=true&output=csv";
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz2LRorrx-ndjy3cJQCYo37KbvaftUs7CVdWPlJQhYkb3oWSiHDNHmBI4GYs5BeSOOtCA/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwFAIC4VegdER9OZKjKZnYguJjhdd2EmGcDHZoS_wKibR-JcNICAQhSqmSR-gaURY-b/exec";
 
 const USUARIOS = {
   Admin:    { pass: "Karina.25",  rol: "admin" },
@@ -161,8 +161,8 @@ async function agregarFila(datos) {
   await scriptPost({ action:"append", nombre:datos.nombre, cuenta:datos.cuenta, precio:datos.precio, fecha:datos.fecha, notas:datos.notas, tel:datos.tel });
 }
 
-async function actualizarFecha(rowNum, colIdx, nuevaFecha) {
-  await scriptPost({ action:"update", row:rowNum, col:colIdx, value:nuevaFecha });
+async function renovarServicioSheet(rowNum, nuevaFecha, notas) {
+  await scriptPost({ action:"renovar", row:rowNum, fecha:nuevaFecha, notas:notas||"" });
 }
 
 async function eliminarFila(rowNum) {
@@ -199,6 +199,7 @@ function ModalRenovar({ servicio, nombreCliente, onRenovar, onCerrar }) {
   const [seleccion,   setSeleccion]   = useState(opciones[0].fecha);
   const [manual,      setManual]      = useState(false);
   const [fechaManual, setFechaManual] = useState("");
+  const [notas,       setNotas]       = useState("");
   const [guardando,   setGuardando]   = useState(false);
   const [guardado,    setGuardado]    = useState(false);
   const [error,       setError]       = useState("");
@@ -208,7 +209,7 @@ function ModalRenovar({ servicio, nombreCliente, onRenovar, onCerrar }) {
     if (!fechaFinal || !/^\d{2}\/\d{2}\/\d{4}$/.test(fechaFinal)) return setError("Fecha debe ser DD/MM/AAAA");
     setGuardando(true); setError("");
     try {
-      await actualizarFecha(servicio.rowNum, servicio.colFecha, fechaFinal);
+      await renovarServicioSheet(servicio.rowNum, fechaFinal, notas);
       setGuardado(true);
       setTimeout(() => { onRenovar(); onCerrar(); }, 800);
     } catch(e) { setError("Error al actualizar. Intenta de nuevo."); setGuardando(false); }
@@ -242,6 +243,11 @@ function ModalRenovar({ servicio, nombreCliente, onRenovar, onCerrar }) {
           <input value={fechaManual} onChange={e=>setFechaManual(e.target.value)} placeholder="DD/MM/AAAA" maxLength={10}
             style={{ width:"100%", boxSizing:"border-box", background:"#1e2640", border:"1px solid #3b82f6", borderRadius:10, padding:"10px 12px", color:"#e2e8f0", fontSize:14, outline:"none", marginBottom:16 }} />
         )}
+        <div style={{ marginBottom:12 }}>
+          <label style={{ fontSize:11, color:"#64748b", fontWeight:600, display:"block", marginBottom:5 }}>NOTAS (opcional)</label>
+          <input value={notas} onChange={e=>setNotas(e.target.value)} placeholder="Ej: Renovó 3 meses, pagó en efectivo..."
+            style={{ width:"100%", boxSizing:"border-box", background:"#1e2640", border:"1px solid #2d3548", borderRadius:10, padding:"10px 12px", color:"#e2e8f0", fontSize:14, outline:"none" }} />
+        </div>
         {error && <div style={{ background:"#2d0a14", borderRadius:8, padding:"8px 12px", marginBottom:12, fontSize:12, color:"#f43f5e" }}>⚠️ {error}</div>}
         <button onClick={renovar} disabled={guardando||guardado}
           style={{ width:"100%", background:guardado?"#166534":guardando?"#374151":"linear-gradient(135deg,#6366f1,#a855f7)", color:"#fff", border:"none", borderRadius:10, padding:"13px", fontWeight:700, fontSize:15, cursor:"pointer" }}>
