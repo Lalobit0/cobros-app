@@ -703,35 +703,50 @@ Se marcará como CANCELADO en las notas.`,
                       </button>
                     </div>
                     {grupo.servicios.map((s, si) => {
-                      const tieneAviso = !!s.aviso;
-                      const esDosAvisos = s.aviso && s.aviso.startsWith("2do");
-                      const avisoColor = !tieneAviso ? "#4ade80" : esDosAvisos ? "#f43f5e" : "#fb923c";
-                      const avisoTxt   = !tieneAviso ? "1er aviso" : esDosAvisos ? "2 avisos ✓" : "2do aviso";
-                      const avisoIcon  = !tieneAviso ? "📲" : esDosAvisos ? "🔔🔔" : "🔔";
+                      const esDosAvisos  = s.aviso && s.aviso.startsWith("2do");
+                      const esUnAviso    = s.aviso && s.aviso.startsWith("1er");
+                      const urgente3     = s.d !== null && s.d >= 0 && s.d <= 3;
+                      const vencido      = s.d !== null && s.d < 0;
+                      const mostrarAviso = urgente3 || vencido;
+
                       return (
                         <div key={si} style={{ background:"#0d1424", borderRadius:8, padding:"8px 10px", marginBottom:si<grupo.servicios.length-1?6:0, border:"1px solid #1e2640" }}>
-                          {/* Fila 1: servicio + vinculada + precio */}
-                          <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom: s.notas ? 4 : esAdmin ? 6 : 0 }}>
+
+                          {/* Fila 1: servicio + vinculada + campanita + precio */}
+                          <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
                             <span style={{ background:"#1e2640", color:"#e2e8f0", fontSize:12, padding:"2px 8px", borderRadius:6, fontWeight:700 }}>{s.cuenta}</span>
                             {s.vinculada && <span style={{ background:"#312e81", color:"#a5b4fc", fontSize:10, padding:"2px 7px", borderRadius:6, fontWeight:600 }}>{s.vinculada}</span>}
+                            {/* Campanita informativa */}
+                            {esUnAviso && !esDosAvisos && (
+                              <span title={s.aviso} style={{ fontSize:13 }}>🔔</span>
+                            )}
+                            {esDosAvisos && (
+                              <span title={s.aviso} style={{ fontSize:13 }}>🔔🔔</span>
+                            )}
                             {esAdmin && <span style={{ color:"#4ade80", fontSize:12, fontWeight:700, marginLeft:"auto" }}>${s.precio.toLocaleString()}</span>}
                           </div>
+
                           {/* Fila 2: notas del servicio */}
                           {s.notas && (
-                            <div style={{ fontSize:11, color:"#64748b", marginBottom: esAdmin ? 6 : 0, paddingLeft:2 }}>
+                            <div style={{ fontSize:11, color:"#64748b", marginBottom:6, paddingLeft:2 }}>
                               📝 {s.notas}
                             </div>
                           )}
-                          {/* Fila 3: botones admin en una sola fila */}
+
+                          {/* Fila 3: botones admin */}
                           {esAdmin && (
                             <div style={{ display:"flex", gap:5, alignItems:"center" }}>
-                              {/* Aviso */}
-                              {!esDosAvisos ? (
-                                <button onClick={()=>marcarAviso(s)} style={{ background:"#0f2a0f", border:`1px solid ${avisoColor}55`, color:avisoColor, borderRadius:6, padding:"3px 9px", cursor:"pointer", fontSize:10, fontWeight:700, display:"flex", alignItems:"center", gap:3 }}>
-                                  {avisoIcon} {avisoTxt}
+                              {/* Botón aviso — solo si faltan ≤3 días o está vencido */}
+                              {mostrarAviso && !esDosAvisos && (
+                                <button onClick={()=>marcarAviso(s)} style={{
+                                  background: esUnAviso ? "#2d1a00" : "#0f2a0f",
+                                  border:`1px solid ${esUnAviso?"#fb923c55":"#4ade8055"}`,
+                                  color: esUnAviso ? "#fb923c" : "#4ade80",
+                                  borderRadius:6, padding:"3px 9px", cursor:"pointer", fontSize:10, fontWeight:700,
+                                  display:"flex", alignItems:"center", gap:3
+                                }}>
+                                  {esUnAviso ? "🔔 2do aviso" : "📲 1er aviso"}
                                 </button>
-                              ) : (
-                                <span style={{ fontSize:10, color:"#f43f5e", fontWeight:700 }}>🔔🔔 2 avisos</span>
                               )}
                               <div style={{ flex:1 }} />
                               {/* Cancelar */}
