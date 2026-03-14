@@ -515,7 +515,10 @@ function AppPrincipal({ sesion, onLogout }) {
 
   function notificarGrupo(nombre, tel, grupo) {
     const key = `${nombre}__${grupo.fecha}`;
-    const lineas = grupo.servicios.map(s=>`• ${s.cuenta}: $${s.precio} MXN`).join("\n");
+    const lineas = grupo.servicios.map(s => {
+      const vinc = s.vinculada ? ` (${s.vinculada})` : "";
+      return `• ${s.cuenta}${vinc}: $${s.precio} MXN`;
+    }).join("\n");
     const total = grupo.servicios.reduce((s,x)=>s+x.precio,0);
     const diasTxt = grupo.d===0?"¡HOY!":grupo.d!==null?`en ${grupo.d} días`:"próximamente";
     const txt = `Hola! Te recuerdo el pago de *${nombre}* (${diasTxt}):\n${lineas}\n\n*Total: $${total} MXN*\nFecha: *${grupo.fecha}*`;
@@ -705,8 +708,10 @@ Se marcará como CANCELADO en las notas.`,
                     {grupo.servicios.map((s, si) => {
                       const esDosAvisos  = s.aviso && s.aviso.startsWith("2do");
                       const esUnAviso    = s.aviso && s.aviso.startsWith("1er");
-                      const urgente3     = s.d !== null && s.d >= 0 && s.d <= 3;
-                      const vencido      = s.d !== null && s.d < 0;
+                      // Usar la fecha del propio servicio para calcular urgencia
+                      const diasServicio = s.d !== undefined ? s.d : grupo.d;
+                      const urgente3     = diasServicio !== null && diasServicio >= 0 && diasServicio <= 3;
+                      const vencido      = diasServicio !== null && diasServicio < 0;
                       const mostrarAviso = urgente3 || vencido;
 
                       return (
@@ -726,8 +731,8 @@ Se marcará como CANCELADO en las notas.`,
                             {esAdmin && <span style={{ color:"#4ade80", fontSize:12, fontWeight:700, marginLeft:"auto" }}>${s.precio.toLocaleString()}</span>}
                           </div>
 
-                          {/* Fila 2: notas del servicio */}
-                          {s.notas && (
+                          {/* Fila 2: notas del servicio — solo admin */}
+                          {s.notas && esAdmin && (
                             <div style={{ fontSize:11, color:"#64748b", marginBottom:6, paddingLeft:2 }}>
                               📝 {s.notas}
                             </div>
