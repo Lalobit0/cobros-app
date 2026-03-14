@@ -413,8 +413,8 @@ function Login({ onLogin }) {
     <div style={{ minHeight:"100vh", background:"#0b0f1a", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"system-ui,sans-serif", padding:16 }}>
       <div style={{ width:"100%", maxWidth:360 }}>
         <div style={{ textAlign:"center", marginBottom:32 }}>
-          <div style={{ width:64, height:64, borderRadius:18, background:"linear-gradient(135deg,#6366f1,#a855f7)", display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:32, marginBottom:12, boxShadow:"0 0 40px #6366f155" }}>💳</div>
-          <div style={{ fontWeight:800, fontSize:22, color:"#e2e8f0" }}>Cobros del mes</div>
+          <div style={{ width:64, height:64, borderRadius:18, background:"linear-gradient(135deg,#6366f1,#a855f7)", display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:38, marginBottom:12, boxShadow:"0 0 40px #6366f155" }}>👾</div>
+          <div style={{ fontWeight:800, fontSize:22, color:"#e2e8f0" }}>👾 Streaming</div>
           <div style={{ fontSize:13, color:"#4b5563", marginTop:4 }}>Inicia sesión para continuar</div>
         </div>
         <div style={{ background:"#111827", border:"1px solid #1e2640", borderRadius:16, padding:24 }}>
@@ -583,9 +583,9 @@ Se marcará como CANCELADO en las notas.`,
         <div style={{ maxWidth:500, margin:"0 auto" }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-              <div style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,#6366f1,#a855f7)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>💳</div>
+              <div style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,#6366f1,#a855f7)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>👾</div>
               <div>
-                <div style={{ fontWeight:800, fontSize:15 }}>Cobros del mes</div>
+                <div style={{ fontWeight:800, fontSize:15 }}>👾 Streaming</div>
                 <div style={{ fontSize:11, color:"#4b5563" }}>{sesion.usuario} · <span style={{ color:esAdmin?"#a855f7":"#38bdf8" }}>{esAdmin?"Admin":"Ayudante"}</span></div>
               </div>
             </div>
@@ -703,43 +703,47 @@ Se marcará como CANCELADO en las notas.`,
                       </button>
                     </div>
                     {grupo.servicios.map((s, si) => {
-                      const avisoColor = !s.aviso?"#64748b":s.aviso.startsWith("2do")?"#f43f5e":"#fb923c";
-                      const avisoLabel = !s.aviso?"📲 1er aviso":s.aviso.startsWith("2do")?"🔔🔔 2do aviso":"🔔 1er aviso ✓";
+                      const tieneAviso = !!s.aviso;
+                      const esDosAvisos = s.aviso && s.aviso.startsWith("2do");
+                      const avisoColor = !tieneAviso ? "#4ade80" : esDosAvisos ? "#f43f5e" : "#fb923c";
+                      const avisoTxt   = !tieneAviso ? "1er aviso" : esDosAvisos ? "2 avisos ✓" : "2do aviso";
+                      const avisoIcon  = !tieneAviso ? "📲" : esDosAvisos ? "🔔🔔" : "🔔";
                       return (
-                        <div key={si} style={{ marginBottom:si<grupo.servicios.length-1?8:0 }}>
-                          {/* Servicio + vinculada + precio */}
-                          <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:4 }}>
-                            <span style={{ background:"#1e2640", color:"#94a3b8", fontSize:11, padding:"2px 8px", borderRadius:6, fontWeight:600 }}>{s.cuenta}</span>
+                        <div key={si} style={{ background:"#0d1424", borderRadius:8, padding:"8px 10px", marginBottom:si<grupo.servicios.length-1?6:0, border:"1px solid #1e2640" }}>
+                          {/* Fila 1: servicio + vinculada + precio */}
+                          <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom: s.notas ? 4 : esAdmin ? 6 : 0 }}>
+                            <span style={{ background:"#1e2640", color:"#e2e8f0", fontSize:12, padding:"2px 8px", borderRadius:6, fontWeight:700 }}>{s.cuenta}</span>
                             {s.vinculada && <span style={{ background:"#312e81", color:"#a5b4fc", fontSize:10, padding:"2px 7px", borderRadius:6, fontWeight:600 }}>{s.vinculada}</span>}
-                            {esAdmin && <span style={{ color:"#cbd5e1", fontSize:12 }}>${s.precio.toLocaleString()}</span>}
+                            {esAdmin && <span style={{ color:"#4ade80", fontSize:12, fontWeight:700, marginLeft:"auto" }}>${s.precio.toLocaleString()}</span>}
                           </div>
-                          {/* Aviso status */}
-                          {s.aviso && (
-                            <div style={{ fontSize:10, color:avisoColor, marginBottom:4, fontWeight:600 }}>
-                              {s.aviso.startsWith("2do") ? "🔔🔔" : "🔔"} {s.aviso}
+                          {/* Fila 2: notas del servicio */}
+                          {s.notas && (
+                            <div style={{ fontSize:11, color:"#64748b", marginBottom: esAdmin ? 6 : 0, paddingLeft:2 }}>
+                              📝 {s.notas}
                             </div>
                           )}
-                          {/* Botones admin */}
+                          {/* Fila 3: botones admin en una sola fila */}
                           {esAdmin && (
-                            <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                            <div style={{ display:"flex", gap:5, alignItems:"center" }}>
                               {/* Aviso */}
-                              {!s.aviso || s.aviso.startsWith("1er") ? (
-                                <button onClick={()=>marcarAviso(s)} style={{ background:"#1a2e1a", border:`1px solid ${avisoColor}44`, color:avisoColor, borderRadius:6, padding:"3px 8px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
-                                  {!s.aviso ? "📲 1er aviso" : "📲 2do aviso"}
+                              {!esDosAvisos ? (
+                                <button onClick={()=>marcarAviso(s)} style={{ background:"#0f2a0f", border:`1px solid ${avisoColor}55`, color:avisoColor, borderRadius:6, padding:"3px 9px", cursor:"pointer", fontSize:10, fontWeight:700, display:"flex", alignItems:"center", gap:3 }}>
+                                  {avisoIcon} {avisoTxt}
                                 </button>
                               ) : (
-                                <span style={{ fontSize:10, color:"#f43f5e", fontWeight:700 }}>🔔🔔 2 avisos enviados</span>
+                                <span style={{ fontSize:10, color:"#f43f5e", fontWeight:700 }}>🔔🔔 2 avisos</span>
                               )}
+                              <div style={{ flex:1 }} />
                               {/* Cancelar */}
-                              <button onClick={()=>pedirCancelarServicio(s, c.nombre)} style={{ background:"#2d1a00", border:"1px solid #fb923c33", color:"#fb923c", borderRadius:6, padding:"3px 8px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
+                              <button onClick={()=>pedirCancelarServicio(s, c.nombre)} style={{ background:"#2d1a00", border:"1px solid #fb923c33", color:"#fb923c", borderRadius:6, padding:"3px 9px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
                                 ❌ Cancelar
                               </button>
                               {/* Renovar */}
-                              <button onClick={()=>setModalRenovar({servicio:s, nombreCliente:c.nombre})} style={{ background:"#1e3a5f", border:"1px solid #3b82f644", color:"#93c5fd", borderRadius:6, padding:"3px 8px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
+                              <button onClick={()=>setModalRenovar({servicio:s, nombreCliente:c.nombre})} style={{ background:"#1e3a5f", border:"1px solid #3b82f644", color:"#93c5fd", borderRadius:6, padding:"3px 9px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
                                 🔄 Renovar
                               </button>
                               {/* Eliminar */}
-                              <button onClick={()=>pedirEliminarServicio(s, c.nombre)} style={{ background:"#2d0a14", border:"1px solid #f43f5e33", color:"#f43f5e", borderRadius:6, padding:"3px 8px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
+                              <button onClick={()=>pedirEliminarServicio(s, c.nombre)} style={{ background:"#2d0a14", border:"1px solid #f43f5e33", color:"#f43f5e", borderRadius:6, padding:"3px 8px", cursor:"pointer", fontSize:11, fontWeight:700 }}>
                                 🗑️
                               </button>
                             </div>

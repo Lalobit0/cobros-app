@@ -1,6 +1,6 @@
 {
-  "name": "Cobros del mes",
-  "short_name": "Cobros",
+  "name": "Streaming",
+  "short_name": "Streaming",
   "description": "Control de pagos y clientes",
   "start_url": "/",
   "display": "standalone",
