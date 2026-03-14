@@ -489,7 +489,7 @@ function AppPrincipal({ sesion, onLogout }) {
   const filtrados = useMemo(() => {
     const q = buscar.toLowerCase();
     return clientes.filter(c => {
-      const ok = !q || c.nombre.toLowerCase().includes(q) || c.servicios.some(s => s.cuenta.toLowerCase().includes(q));
+      const ok = !q || c.nombre.toLowerCase().includes(q) || c.servicios.some(s => s.cuenta.toLowerCase().includes(q)) || c.servicios.some(s => s.vinculada && s.vinculada.toLowerCase().includes(q));
       if (filtro==="vencidos") return ok && c.dMin!==null && c.dMin<0;
       if (filtro==="hoy")    return ok && c.dMin===0;
       if (filtro==="3dias")  return ok && c.dMin!==null && c.dMin>=0 && c.dMin<=3;
@@ -610,16 +610,45 @@ Se marcará como CANCELADO en las notas.`,
                 <span style={{ fontSize:11, color:"#4b5563" }}>{verRes?"▲":"▼"}</span>
               </div>
               {verRes && (
-                <div style={{ marginTop:10, display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                  <div style={{ background:"#1e2640", borderRadius:8, padding:"8px 12px" }}>
-                    <div style={{ fontSize:10, color:"#64748b", marginBottom:2 }}>Total por cobrar</div>
-                    <div style={{ fontSize:18, fontWeight:800, color:"#4ade80" }}>${totalMes.toLocaleString()}</div>
-                    <div style={{ fontSize:10, color:"#374151" }}>{clientes.length} clientes</div>
+                <div style={{ marginTop:10 }}>
+                  {/* Totales principales */}
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
+                    <div style={{ background:"#1e2640", borderRadius:8, padding:"8px 12px" }}>
+                      <div style={{ fontSize:10, color:"#64748b", marginBottom:2 }}>Total por cobrar</div>
+                      <div style={{ fontSize:18, fontWeight:800, color:"#4ade80" }}>${totalMes.toLocaleString()}</div>
+                      <div style={{ fontSize:10, color:"#374151" }}>{clientes.length} clientes</div>
+                    </div>
+                    <div style={{ background:"#2d1200", borderRadius:8, padding:"8px 12px", border:"1px solid #fb923c33" }}>
+                      <div style={{ fontSize:10, color:"#64748b", marginBottom:2 }}>Urgente (7 días)</div>
+                      <div style={{ fontSize:18, fontWeight:800, color:"#fb923c" }}>${totalUrg.toLocaleString()}</div>
+                      <div style={{ fontSize:10, color:"#374151" }}>{urgentes7} clientes</div>
+                    </div>
                   </div>
-                  <div style={{ background:"#2d1200", borderRadius:8, padding:"8px 12px", border:"1px solid #fb923c33" }}>
-                    <div style={{ fontSize:10, color:"#64748b", marginBottom:2 }}>Urgente (7 días)</div>
-                    <div style={{ fontSize:18, fontWeight:800, color:"#fb923c" }}>${totalUrg.toLocaleString()}</div>
-                    <div style={{ fontSize:10, color:"#374151" }}>{urgentes7} clientes</div>
+                  {/* Desglose por tipo de servicio */}
+                  <div style={{ background:"#0f172a", borderRadius:8, padding:"10px 12px", border:"1px solid #1e2640" }}>
+                    <div style={{ fontSize:11, color:"#64748b", fontWeight:700, marginBottom:8 }}>📊 Por tipo de servicio</div>
+                    {(() => {
+                      const mapa = new Map();
+                      clientes.forEach(c => c.servicios.forEach(s => {
+                        // Normalizar nombre del servicio (quitar variantes)
+                        const base = s.cuenta.replace(/\s*(4K|HD|extra|gen|genérico|\+|3|1|12|platino)/gi,"").trim();
+                        const key = base || s.cuenta;
+                        if (!mapa.has(key)) mapa.set(key, { total:0, count:0 });
+                        mapa.get(key).total += s.precio;
+                        mapa.get(key).count += 1;
+                      }));
+                      return Array.from(mapa.entries())
+                        .sort((a,b) => b[1].total - a[1].total)
+                        .map(([nombre, datos]) => (
+                          <div key={nombre} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                              <span style={{ fontSize:11, color:"#94a3b8", fontWeight:600 }}>{nombre}</span>
+                              <span style={{ fontSize:10, color:"#374151", background:"#1e2640", borderRadius:4, padding:"1px 5px" }}>{datos.count}</span>
+                            </div>
+                            <span style={{ fontSize:12, color:"#4ade80", fontWeight:700 }}>${datos.total.toLocaleString()}</span>
+                          </div>
+                        ));
+                    })()}
                   </div>
                 </div>
               )}
@@ -707,13 +736,7 @@ Se marcará como CANCELADO en las notas.`,
                       </button>
                     </div>
                     {grupo.servicios.map((s, si) => {
-                      const esDosAvisos  = s.aviso && s.aviso.startsWith("2do");
-                      const esUnAviso    = s.aviso && s.aviso.startsWith("1er");
-                      // Usar la fecha del propio servicio para calcular urgencia
-                      const diasServicio = s.d !== undefined ? s.d : grupo.d;
-                      const urgente3     = diasServicio !== null && diasServicio >= 0 && diasServicio <= 3;
-                      const vencido      = diasServicio !== null && diasServicio < 0;
-                      const mostrarAviso = urgente3 || vencido;
+
 
                       return (
                         <div key={si} style={{ background:"#0d1424", borderRadius:8, padding:"8px 10px", marginBottom:si<grupo.servicios.length-1?6:0, border:"1px solid #1e2640" }}>
@@ -735,18 +758,6 @@ Se marcará como CANCELADO en las notas.`,
                           {/* Fila 3: botones admin */}
                           {esAdmin && (
                             <div style={{ display:"flex", gap:5, alignItems:"center" }}>
-                              {/* Botón aviso — solo si faltan ≤3 días o está vencido */}
-                              {mostrarAviso && !esDosAvisos && (
-                                <button onClick={()=>marcarAviso(s)} style={{
-                                  background: esUnAviso ? "#2d1a00" : "#0f2a0f",
-                                  border:`1px solid ${esUnAviso?"#fb923c55":"#4ade8055"}`,
-                                  color: esUnAviso ? "#fb923c" : "#4ade80",
-                                  borderRadius:6, padding:"3px 9px", cursor:"pointer", fontSize:10, fontWeight:700,
-                                  display:"flex", alignItems:"center", gap:3
-                                }}>
-                                  {esUnAviso ? "🔔 2do aviso" : "📲 1er aviso"}
-                                </button>
-                              )}
                               <div style={{ flex:1 }} />
                               {/* Cancelar */}
                               <button onClick={()=>pedirCancelarServicio(s, c.nombre)} style={{ background:"#2d1a00", border:"1px solid #fb923c33", color:"#fb923c", borderRadius:6, padding:"3px 9px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
