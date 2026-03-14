@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 
 // ─── CONFIG ───────────────────────────────────────────────
 const SHEET_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS2zZwes2sBIGWHuBxBG56_7QpKC-bzp7fe7qphlGzD2roQkUyYvn12CIG1fdrAt-Q0GbPtdUwnZdJR/pub?gid=918785499&single=true&output=csv";
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwFAIC4VegdER9OZKjKZnYguJjhdd2EmGcDHZoS_wKibR-JcNICAQhSqmSR-gaURY-b/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwzMsH7AduJ10zhSD_n3FcF2DibNbDWGTsbfZgUevCWFe7aCfqI_RV6RC0hDKYFP_qSpg/exec";
 
 const USUARIOS = {
   Admin:    { pass: "Karina.25",  rol: "admin" },
@@ -92,6 +92,8 @@ function parseCSV(text) {
   const iF  = headers.findIndex(h => h.includes("FECHA"));
   const iNt = headers.findIndex(h => h.includes("NOTAS"));
   const iT  = headers.findIndex(h => h.includes("TEL") || h.includes("WHATSAPP") || h.includes("TELEFONO"));
+  const iV  = headers.findIndex(h => h.includes("VINCULADA") || h.includes("ACTUALIZA"));
+  const iAv = headers.findIndex(h => h.includes("AVISO"));
 
   const rows = lines.slice(headerIdx + 1)
     .map((line, idx) => ({ cols: parseCols(line), rowNum: headerIdx + 2 + idx }))
@@ -112,13 +114,16 @@ function parseCSV(text) {
         d,
         notas: (cols[iNt]||"").trim(),
         tel: iT>=0 ? (cols[iT]||"").trim() : "",
+        vinculada: iV>=0 ? (cols[iV]||"").trim() : "",
+        aviso: iAv>=0 ? (cols[iAv]||"").trim() : "",
+        colAviso: iAv,
         cancelado,
         colFecha: iF,
       };
     })
     .filter(c => !c.cancelado);
 
-  return { rows, headers, headerIdx, iN, iC, iP, iF, iNt, iT };
+  return { rows, headers, headerIdx, iN, iC, iP, iF, iNt, iT, iV, iAv };
 }
 
 function agruparClientes(lista) {
@@ -158,7 +163,7 @@ async function scriptPost(payload) {
 }
 
 async function agregarFila(datos) {
-  await scriptPost({ action:"append", nombre:datos.nombre, cuenta:datos.cuenta, precio:datos.precio, fecha:datos.fecha, notas:datos.notas, tel:datos.tel });
+  await scriptPost({ action:"append", nombre:datos.nombre, vinculada:datos.vinculada||"", cuenta:datos.cuenta, precio:datos.precio, fecha:datos.fecha, notas:datos.notas, tel:datos.tel });
 }
 
 async function renovarServicioSheet(rowNum, nuevaFecha, notas) {
@@ -258,18 +263,52 @@ function ModalRenovar({ servicio, nombreCliente, onRenovar, onCerrar }) {
   );
 }
 
-const SERVICIOS_COMUNES = ["Netflix","Netflix 4K","Spotify","YouTube","Max","Disney+","Prime","Paramount","Star Plus","Otro"];
+const VINCULADAS = ["SIX","Lalobit","ed.perma out","EDGAR.PERMA","ARES","Laloshop","edd.perma gmail"];
+const SERVICIOS_LISTA = ["Netflix","Netflix extra","Netflix genérico","HBO HD","HBO 4K","HBO PLATINO","Disney 4K","Disney HD","PRIME","Paramount","VIX","Crunchyroll","Spotify","Spotify 3","ChatGPT gen","ChatGPT+","Office","Office3","Office12","Canva1","Canva12","APPLE ONE","Apple TV","Youtubep1","Youtubep3","ARES1","ARES2","ARES12","IPTVLAT1","IPTVLAT3"];
+
+function BuscadorServicio({ value, onChange }) {
+  const [query, setQuery] = useState(value || "");
+  const [abierto, setAbierto] = useState(false);
+  const filtrados = query.length > 0
+    ? SERVICIOS_LISTA.filter(s => s.toLowerCase().includes(query.toLowerCase()))
+    : SERVICIOS_LISTA;
+
+  function seleccionar(s) { setQuery(s); onChange(s); setAbierto(false); }
+
+  return (
+    <div style={{ position:"relative" }}>
+      <input
+        value={query}
+        onChange={e => { setQuery(e.target.value); onChange(e.target.value); setAbierto(true); }}
+        onFocus={() => setAbierto(true)}
+        onBlur={() => setTimeout(() => setAbierto(false), 150)}
+        placeholder="Busca o escribe un servicio..."
+        style={{ width:"100%", boxSizing:"border-box", background:"#1e2640", border:"1px solid #2d3548", borderRadius:10, padding:"10px 12px", color:"#e2e8f0", fontSize:14, outline:"none" }}
+      />
+      {abierto && filtrados.length > 0 && (
+        <div style={{ position:"absolute", top:"100%", left:0, right:0, background:"#1e2640", border:"1px solid #2d3548", borderRadius:10, maxHeight:180, overflowY:"auto", zIndex:50, marginTop:4 }}>
+          {filtrados.map(s => (
+            <div key={s} onMouseDown={() => seleccionar(s)}
+              style={{ padding:"9px 14px", cursor:"pointer", fontSize:13, color: value===s?"#a5b4fc":"#e2e8f0", background: value===s?"#2d3748":"transparent", borderBottom:"1px solid #2d354820" }}>
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function FormNuevoCliente({ onGuardar, onCerrar }) {
-  const [form, setForm] = useState({ nombre:"", cuenta:"", precio:"", fecha:"", tel:"", notas:"" });
+  const [form, setForm] = useState({ nombre:"", vinculada:"", cuenta:"", precio:"", fecha:"", tel:"", notas:"" });
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [guardado,  setGuardado]  = useState(false);
   function set(k,v) { setForm(p=>({...p,[k]:v})); setError(""); }
 
   async function guardar() {
-    if (!form.nombre.trim()) return setError("El nombre es obligatorio");
-    if (!form.cuenta.trim()) return setError("La cuenta/servicio es obligatoria");
+    if (!form.nombre.trim()) return setError("El nombre / WhatsApp es obligatorio");
+    if (!form.cuenta.trim()) return setError("El servicio es obligatorio");
     if (!form.fecha.trim())  return setError("La fecha es obligatoria");
     if (!/^\d{2}\/\d{2}\/\d{4}$/.test(form.fecha)) return setError("Fecha debe ser DD/MM/AAAA");
     setGuardando(true); setError("");
@@ -282,28 +321,39 @@ function FormNuevoCliente({ onGuardar, onCerrar }) {
 
   return (
     <div style={{ position:"fixed", inset:0, background:"#000000bb", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-      <div style={{ background:"#111827", borderRadius:"20px 20px 0 0", padding:24, width:"100%", maxWidth:500, maxHeight:"90vh", overflowY:"auto" }}>
+      <div style={{ background:"#111827", borderRadius:"20px 20px 0 0", padding:24, width:"100%", maxWidth:500, maxHeight:"92vh", overflowY:"auto" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
           <div style={{ fontWeight:800, fontSize:17 }}>➕ Nuevo cliente</div>
           <button onClick={onCerrar} style={{ background:"#1e2640", border:"none", color:"#94a3b8", borderRadius:8, padding:"6px 10px", cursor:"pointer" }}>✕</button>
         </div>
-        {[{key:"nombre",label:"NOMBRE *",placeholder:"Ej: Juan o 664 123 4567",type:"text"},{key:"tel",label:"TELÉFONO WHATSAPP",placeholder:"10 dígitos: 6641234567",type:"tel"}].map(f=>(
-          <div key={f.key} style={{ marginBottom:14 }}>
-            <label style={{ fontSize:11, color:"#64748b", fontWeight:600, display:"block", marginBottom:5 }}>{f.label}</label>
-            <input value={form[f.key]} onChange={e=>set(f.key,e.target.value)} placeholder={f.placeholder} type={f.type}
-              style={{ width:"100%", boxSizing:"border-box", background:"#1e2640", border:"1px solid #2d3548", borderRadius:10, padding:"10px 12px", color:"#e2e8f0", fontSize:14, outline:"none" }} />
-          </div>
-        ))}
+
+        {/* Nombre / WhatsApp */}
         <div style={{ marginBottom:14 }}>
-          <label style={{ fontSize:11, color:"#64748b", fontWeight:600, display:"block", marginBottom:5 }}>SERVICIO / CUENTA *</label>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:8 }}>
-            {SERVICIOS_COMUNES.map(s=>(
-              <button key={s} onClick={()=>set("cuenta",s)} style={{ background:form.cuenta===s?"#6366f1":"#1e2640", color:form.cuenta===s?"#fff":"#94a3b8", border:`1px solid ${form.cuenta===s?"#6366f1":"#2d3548"}`, borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:11, fontWeight:600 }}>{s}</button>
-            ))}
-          </div>
-          <input value={form.cuenta} onChange={e=>set("cuenta",e.target.value)} placeholder="O escribe uno personalizado..."
+          <label style={{ fontSize:11, color:"#64748b", fontWeight:600, display:"block", marginBottom:5 }}>NOMBRE O WHATSAPP *</label>
+          <input value={form.nombre} onChange={e=>set("nombre",e.target.value)} placeholder="Ej: Juan García o 664 123 4567"
             style={{ width:"100%", boxSizing:"border-box", background:"#1e2640", border:"1px solid #2d3548", borderRadius:10, padding:"10px 12px", color:"#e2e8f0", fontSize:14, outline:"none" }} />
         </div>
+
+        {/* Vinculada */}
+        <div style={{ marginBottom:14 }}>
+          <label style={{ fontSize:11, color:"#64748b", fontWeight:600, display:"block", marginBottom:5 }}>VINCULADA</label>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+            {VINCULADAS.map(v => (
+              <button key={v} onClick={()=>set("vinculada", form.vinculada===v?"":v)}
+                style={{ background:form.vinculada===v?"#6366f1":"#1e2640", color:form.vinculada===v?"#fff":"#94a3b8", border:`1px solid ${form.vinculada===v?"#6366f1":"#2d3548"}`, borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:11, fontWeight:600 }}>
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Servicio buscador */}
+        <div style={{ marginBottom:14 }}>
+          <label style={{ fontSize:11, color:"#64748b", fontWeight:600, display:"block", marginBottom:5 }}>SERVICIO / CUENTA *</label>
+          <BuscadorServicio value={form.cuenta} onChange={v=>set("cuenta",v)} />
+        </div>
+
+        {/* Precio y Fecha */}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
           <div>
             <label style={{ fontSize:11, color:"#64748b", fontWeight:600, display:"block", marginBottom:5 }}>PRECIO (MXN)</label>
@@ -316,11 +366,21 @@ function FormNuevoCliente({ onGuardar, onCerrar }) {
               style={{ width:"100%", boxSizing:"border-box", background:"#1e2640", border:"1px solid #2d3548", borderRadius:10, padding:"10px 12px", color:"#e2e8f0", fontSize:14, outline:"none" }} />
           </div>
         </div>
-        <div style={{ marginBottom:20 }}>
-          <label style={{ fontSize:11, color:"#64748b", fontWeight:600, display:"block", marginBottom:5 }}>NOTAS</label>
-          <input value={form.notas} onChange={e=>set("notas",e.target.value)} placeholder="Ej: Paga por transferencia..."
+
+        {/* Teléfono */}
+        <div style={{ marginBottom:14 }}>
+          <label style={{ fontSize:11, color:"#64748b", fontWeight:600, display:"block", marginBottom:5 }}>TELÉFONO WHATSAPP</label>
+          <input value={form.tel} onChange={e=>set("tel",e.target.value)} placeholder="10 dígitos: 6641234567" type="tel"
             style={{ width:"100%", boxSizing:"border-box", background:"#1e2640", border:"1px solid #2d3548", borderRadius:10, padding:"10px 12px", color:"#e2e8f0", fontSize:14, outline:"none" }} />
         </div>
+
+        {/* Notas */}
+        <div style={{ marginBottom:20 }}>
+          <label style={{ fontSize:11, color:"#64748b", fontWeight:600, display:"block", marginBottom:5 }}>NOTAS</label>
+          <input value={form.notas} onChange={e=>set("notas",e.target.value)} placeholder="Ej: Perfil 4, pin 3333 / usuario: juan@mail.com"
+            style={{ width:"100%", boxSizing:"border-box", background:"#1e2640", border:"1px solid #2d3548", borderRadius:10, padding:"10px 12px", color:"#e2e8f0", fontSize:14, outline:"none" }} />
+        </div>
+
         {error && <div style={{ background:"#2d0a14", borderRadius:8, padding:"8px 12px", marginBottom:14, fontSize:12, color:"#f43f5e" }}>⚠️ {error}</div>}
         <button onClick={guardar} disabled={guardando||guardado}
           style={{ width:"100%", background:guardado?"#166534":guardando?"#374151":"linear-gradient(135deg,#6366f1,#a855f7)", color:"#fff", border:"none", borderRadius:10, padding:"13px", fontWeight:700, fontSize:15, cursor:"pointer" }}>
@@ -386,11 +446,12 @@ function Login({ onLogin }) {
 
 // ─── APP PRINCIPAL ────────────────────────────────────────
 const FILTROS = [
-  { val:"todos",  label:"Todos" },
-  { val:"hoy",    label:"🔴 Hoy" },
-  { val:"3dias",  label:"🔴 3 días" },
-  { val:"semana", label:"🟠 7 días" },
-  { val:"mes",    label:"🟡 30 días" },
+  { val:"todos",    label:"Todos" },
+  { val:"vencidos", label:"💀 Vencidos" },
+  { val:"hoy",      label:"🔴 Hoy" },
+  { val:"3dias",    label:"🔴 3 días" },
+  { val:"semana",   label:"🟠 7 días" },
+  { val:"mes",      label:"🟡 30 días" },
 ];
 
 function AppPrincipal({ sesion, onLogout }) {
@@ -429,6 +490,7 @@ function AppPrincipal({ sesion, onLogout }) {
     const q = buscar.toLowerCase();
     return clientes.filter(c => {
       const ok = !q || c.nombre.toLowerCase().includes(q) || c.servicios.some(s => s.cuenta.toLowerCase().includes(q));
+      if (filtro==="vencidos") return ok && c.dMin!==null && c.dMin<0;
       if (filtro==="hoy")    return ok && c.dMin===0;
       if (filtro==="3dias")  return ok && c.dMin!==null && c.dMin>=0 && c.dMin<=3;
       if (filtro==="semana") return ok && c.dMin!==null && c.dMin>=0 && c.dMin<=7;
@@ -436,6 +498,20 @@ function AppPrincipal({ sesion, onLogout }) {
       return ok;
     });
   }, [clientes, buscar, filtro]);
+
+  async function marcarAviso(servicio) {
+    try {
+      await scriptPost({ action:"aviso", row:servicio.rowNum });
+      await cargarDatos();
+    } catch(e) { console.error("Error al marcar aviso", e); }
+  }
+
+  async function cancelarServicio(servicio) {
+    try {
+      await scriptPost({ action:"cancelar", row:servicio.rowNum });
+      await cargarDatos();
+    } catch(e) { console.error("Error al cancelar", e); }
+  }
 
   function notificarGrupo(nombre, tel, grupo) {
     const key = `${nombre}__${grupo.fecha}`;
@@ -446,6 +522,19 @@ function AppPrincipal({ sesion, onLogout }) {
     window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, "_blank");
     setNotif(prev=>({...prev,[key]:true}));
     setTimeout(()=>setNotif(prev=>{const n={...prev};delete n[key];return n;}),3000);
+  }
+
+  function pedirCancelarServicio(servicio, nombreCliente) {
+    setModalConfirm({
+      mensaje:"¿Cancelar servicio?",
+      detalle:`${nombreCliente} · ${servicio.cuenta}
+Se marcará como CANCELADO en las notas.`,
+      onConfirmar: async () => {
+        try { await cancelarServicio(servicio); }
+        catch(e) { alert("Error al cancelar. Intenta de nuevo."); }
+        setModalConfirm(null);
+      }
+    });
   }
 
   function pedirEliminarServicio(servicio, nombreCliente) {
@@ -613,24 +702,51 @@ function AppPrincipal({ sesion, onLogout }) {
                         <span style={{ fontSize:10 }}>{yaNotif?"Enviado":"Avisar"}</span>
                       </button>
                     </div>
-                    {grupo.servicios.map((s, si) => (
-                      <div key={si} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:si<grupo.servicios.length-1?6:0, flexWrap:"wrap" }}>
-                        <span style={{ background:"#1e2640", color:"#94a3b8", fontSize:11, padding:"2px 8px", borderRadius:6, fontWeight:600, flex:1 }}>{s.cuenta}</span>
-                        {esAdmin && <span style={{ color:"#cbd5e1", fontSize:12 }}>${s.precio.toLocaleString()}</span>}
-                        {esAdmin && (
-                          <>
-                            <button onClick={()=>setModalRenovar({servicio:s, nombreCliente:c.nombre})}
-                              style={{ background:"#1e3a5f", border:"1px solid #3b82f644", color:"#93c5fd", borderRadius:6, padding:"3px 8px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
-                              🔄 Renovar
-                            </button>
-                            <button onClick={()=>pedirEliminarServicio(s, c.nombre)}
-                              style={{ background:"#2d0a14", border:"1px solid #f43f5e33", color:"#f43f5e", borderRadius:6, padding:"3px 8px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
-                              🗑️
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    ))}
+                    {grupo.servicios.map((s, si) => {
+                      const avisoColor = !s.aviso?"#64748b":s.aviso.startsWith("2do")?"#f43f5e":"#fb923c";
+                      const avisoLabel = !s.aviso?"📲 1er aviso":s.aviso.startsWith("2do")?"🔔🔔 2do aviso":"🔔 1er aviso ✓";
+                      return (
+                        <div key={si} style={{ marginBottom:si<grupo.servicios.length-1?8:0 }}>
+                          {/* Servicio + vinculada + precio */}
+                          <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:4 }}>
+                            <span style={{ background:"#1e2640", color:"#94a3b8", fontSize:11, padding:"2px 8px", borderRadius:6, fontWeight:600 }}>{s.cuenta}</span>
+                            {s.vinculada && <span style={{ background:"#312e81", color:"#a5b4fc", fontSize:10, padding:"2px 7px", borderRadius:6, fontWeight:600 }}>{s.vinculada}</span>}
+                            {esAdmin && <span style={{ color:"#cbd5e1", fontSize:12 }}>${s.precio.toLocaleString()}</span>}
+                          </div>
+                          {/* Aviso status */}
+                          {s.aviso && (
+                            <div style={{ fontSize:10, color:avisoColor, marginBottom:4, fontWeight:600 }}>
+                              {s.aviso.startsWith("2do") ? "🔔🔔" : "🔔"} {s.aviso}
+                            </div>
+                          )}
+                          {/* Botones admin */}
+                          {esAdmin && (
+                            <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                              {/* Aviso */}
+                              {!s.aviso || s.aviso.startsWith("1er") ? (
+                                <button onClick={()=>marcarAviso(s)} style={{ background:"#1a2e1a", border:`1px solid ${avisoColor}44`, color:avisoColor, borderRadius:6, padding:"3px 8px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
+                                  {!s.aviso ? "📲 1er aviso" : "📲 2do aviso"}
+                                </button>
+                              ) : (
+                                <span style={{ fontSize:10, color:"#f43f5e", fontWeight:700 }}>🔔🔔 2 avisos enviados</span>
+                              )}
+                              {/* Cancelar */}
+                              <button onClick={()=>pedirCancelarServicio(s, c.nombre)} style={{ background:"#2d1a00", border:"1px solid #fb923c33", color:"#fb923c", borderRadius:6, padding:"3px 8px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
+                                ❌ Cancelar
+                              </button>
+                              {/* Renovar */}
+                              <button onClick={()=>setModalRenovar({servicio:s, nombreCliente:c.nombre})} style={{ background:"#1e3a5f", border:"1px solid #3b82f644", color:"#93c5fd", borderRadius:6, padding:"3px 8px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
+                                🔄 Renovar
+                              </button>
+                              {/* Eliminar */}
+                              <button onClick={()=>pedirEliminarServicio(s, c.nombre)} style={{ background:"#2d0a14", border:"1px solid #f43f5e33", color:"#f43f5e", borderRadius:6, padding:"3px 8px", cursor:"pointer", fontSize:10, fontWeight:700 }}>
+                                🗑️
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
