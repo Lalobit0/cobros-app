@@ -516,8 +516,9 @@ function AppPrincipal({ sesion, onLogout }) {
   function notificarGrupo(nombre, tel, grupo) {
     const key = `${nombre}__${grupo.fecha}`;
     const lineas = grupo.servicios.map(s => {
-      const vinc = s.vinculada ? ` (${s.vinculada})` : "";
-      return `• ${s.cuenta}${vinc}: $${s.precio} MXN`;
+      const vinc  = s.vinculada ? ` (${s.vinculada})` : "";
+      const nota  = s.notas     ? `\n  📝 ${s.notas}` : "";
+      return `• ${s.cuenta}${vinc}: $${s.precio} MXN${nota}`;
     }).join("\n");
     const total = grupo.servicios.reduce((s,x)=>s+x.precio,0);
     const diasTxt = grupo.d===0?"¡HOY!":grupo.d!==null?`en ${grupo.d} días`:"próximamente";
@@ -717,17 +718,10 @@ Se marcará como CANCELADO en las notas.`,
                       return (
                         <div key={si} style={{ background:"#0d1424", borderRadius:8, padding:"8px 10px", marginBottom:si<grupo.servicios.length-1?6:0, border:"1px solid #1e2640" }}>
 
-                          {/* Fila 1: servicio + vinculada + campanita + precio */}
+                          {/* Fila 1: servicio + vinculada + precio */}
                           <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
                             <span style={{ background:"#1e2640", color:"#e2e8f0", fontSize:12, padding:"2px 8px", borderRadius:6, fontWeight:700 }}>{s.cuenta}</span>
                             {s.vinculada && <span style={{ background:"#312e81", color:"#a5b4fc", fontSize:10, padding:"2px 7px", borderRadius:6, fontWeight:600 }}>{s.vinculada}</span>}
-                            {/* Campanita informativa */}
-                            {esUnAviso && !esDosAvisos && (
-                              <span title={s.aviso} style={{ fontSize:13 }}>🔔</span>
-                            )}
-                            {esDosAvisos && (
-                              <span title={s.aviso} style={{ fontSize:13 }}>🔔🔔</span>
-                            )}
                             {esAdmin && <span style={{ color:"#4ade80", fontSize:12, fontWeight:700, marginLeft:"auto" }}>${s.precio.toLocaleString()}</span>}
                           </div>
 
